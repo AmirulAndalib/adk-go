@@ -48,5 +48,8 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	r.Run(ctx, "user_1", "session_1", genai.Text("hello, agent!")[0], &runner.RunConfig{})
+	it := r.Run(ctx, "user_1", "session_1", genai.Text("hello, agent, tell me about the weather!")[0], &runner.RunConfig{})
+	for event, err := range it {
+		log.Println(event, err)
+	}
 }
