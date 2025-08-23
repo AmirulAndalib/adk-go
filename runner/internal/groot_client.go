@@ -1,8 +1,7 @@
 package internal
 
 import (
-	"iter"
-
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -48,11 +47,40 @@ type executeActionsMsg struct {
 type ShadowStatus string
 
 const (
+	ShadowStatusUnknown   = "unknown"
 	ShadowStatusPending   = "pending"
 	ShadowStatusCompleted = "completed"
 )
 
-type Shadow struct{}
+type Shadow struct {
+	sess         *Session
+	displayName  string
+	input        string
+	output       string
+	waitStreamID string
+}
+
+func (s *Shadow) WriteFrame(id string, c *Chunk, continued bool) error {
+	return s.sess.writeStreamFrame(&StreamFrame{
+		StreamID:  id,
+		Data:      c,
+		Continued: continued,
+	})
+}
+
+func (s *Shadow) Wait() error {
+	var resp executeActionsMsg
+	for {
+		if err := s.sess.c.conn.ReadJSON(&resp); err != nil {
+			return err
+		}
+		for _, frame := range resp.StreamFrames {
+			if frame.StreamID == s.waitStreamID && !frame.Continued {
+				return nil
+			}
+		}
+	}
+}
 
 func NewClient(endpoint string, apiKey string) (*Client, error) {
 	c, _, err := websocket.DefaultDialer.Dial(endpoint+"?key="+apiKey, nil)
@@ -68,60 +96,45 @@ type Session struct {
 }
 
 func (c *Client) OpenSession(sessionID string) (*Session, error) {
-	// TODO(jbd) Start session for real.
 	return &Session{c: c, sessionID: sessionID}, nil
 }
 
-func (s *Session) ShadowADK(name string, input string, output string) (*Shadow, ShadowStatus, error) {
-	panic("not implemented")
-}
-
-func (s *Session) ExecuteActions(actions []*Action, outputs []string) iter.Seq2[*StreamFrame, error] {
-	outputs = []string{"test"}
-	return func(yield func(*StreamFrame, error) bool) {
-		if err := s.c.conn.WriteJSON(&executeActionsMsg{
-			SessionID: s.sessionID,
-			ActionGraph: &ActionGraph{
-				Actions: []*Action{
-					{
-						Name:    "save_stream",
-						Inputs:  []*Port{{Name: "input", StreamID: "test"}},
-						Outputs: []*Port{{Name: "output", StreamID: "save_output"}},
-					},
-				},
-				Outputs: []*Port{{Name: "output", StreamID: "test"}},
-			},
-			StreamFrames: []*StreamFrame{
-				{StreamID: "test", Data: &Chunk{MIMEType: "text/plain", Data: []byte("hello world")}},
-			},
-		}); err != nil {
-			yield(nil, err)
-			return
-		}
-
-		waiting := make(map[string]struct{})
-		for _, output := range outputs {
-			waiting[output] = struct{}{}
-		}
-		for {
-			var resp executeActionsMsg
-			if err := s.c.conn.ReadJSON(&resp); err != nil {
-				yield(nil, err)
-				return
-			}
-			for _, frame := range resp.StreamFrames {
-				if !frame.Continued {
-					delete(waiting, frame.StreamID)
-				}
-				if !yield(frame, nil) {
-					return
-				}
-			}
-			if len(waiting) == 0 {
-				break
-			}
-		}
+func (s *Session) NewADKShadow(name string, input string, output string) (*Shadow, ShadowStatus, error) {
+	waitID, err := s.writeShadowAction(name, input, output)
+	if err != nil {
+		return nil, ShadowStatusUnknown, err
 	}
+	return &Shadow{
+		sess:         s,
+		displayName:  name,
+		input:        input,
+		output:       output,
+		waitStreamID: waitID,
+	}, ShadowStatusPending, nil
 }
 
-// func (s *Session) ExecuteADK(name string, inputs)
+func (s *Session) writeStreamFrame(sf *StreamFrame) error {
+	return s.c.conn.WriteJSON(&executeActionsMsg{
+		StreamFrames: []*StreamFrame{sf},
+	})
+}
+
+func (s *Session) writeShadowAction(name string, input, output string) (waitID string, err error) {
+	waitID = uuid.NewString()
+	if err := s.c.conn.WriteJSON(&executeActionsMsg{
+		SessionID: s.sessionID,
+		ActionGraph: &ActionGraph{
+			Actions: []*Action{
+				{
+					Name:    "save_stream",
+					Inputs:  []*Port{{Name: "input", StreamID: output}},
+					Outputs: []*Port{{Name: "output", StreamID: waitID}},
+				},
+			},
+			Outputs: []*Port{{Name: "output", StreamID: waitID}},
+		},
+	}); err != nil {
+		return "", err
+	}
+	return waitID, err
+}
