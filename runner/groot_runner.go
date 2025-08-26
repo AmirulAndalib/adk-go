@@ -37,6 +37,8 @@ type GRootRunnerConfig struct {
 type GRootRunner struct {
 	cfg *GRootRunnerConfig
 
+	hydratedEvents []*session.Event
+
 	parents  parentmap.Map
 	registry *internal.Registry
 	eventLog *EventLog
@@ -47,6 +49,9 @@ func NewGRootRunner(cfg *GRootRunnerConfig) (*GRootRunner, error) {
 		cfg.SessionService = sessionservice.Mem()
 	}
 	if cfg.EventLog == "" {
+		// TODO: Event log should be per app, and per user.
+		// For this demo, we will use a single log file
+		// assuming there is a single app and a single user.
 		cfg.EventLog = "adk_runner.log"
 	}
 	client, err := internal.NewClient(cfg.GRootEndpoint, cfg.GRootAPIKey)
@@ -54,23 +59,23 @@ func NewGRootRunner(cfg *GRootRunnerConfig) (*GRootRunner, error) {
 		return nil, err
 	}
 	var eventLog *EventLog
+	var events []*session.Event
 	if cfg.ResumeEventLog {
-		var events []*session.Event
 		eventLog, events, err = ResumerEventLog(cfg.EventLog, client)
 		if err != nil {
 			return nil, err
 		}
-		_ = events // TODO(jbd): Inject events into the session
 	} else {
-		eventLog, err = NewEventLog(cfg.EventLog, client)
+		eventLog, err = NewEventLog(cfg.AppName, cfg.EventLog, client)
 		if err != nil {
 			return nil, err
 		}
 	}
 	return &GRootRunner{
-		cfg:      cfg,
-		eventLog: eventLog,
-		registry: internal.NewRegistry(cfg.RootAgent),
+		cfg:            cfg,
+		hydratedEvents: events,
+		eventLog:       eventLog,
+		registry:       internal.NewRegistry(cfg.RootAgent),
 	}, nil
 }
 
@@ -119,7 +124,13 @@ func (r *GRootRunner) Run(ctx context.Context, userID, sessionID string, msg *ge
 			return
 		}
 
-		if err := r.eventLog.LogActivity("agent_start", r.registry.AgentFullname(agentToRun), input, output); err != nil {
+		if err := r.eventLog.LogActivity(
+			userID,
+			"agent_start",
+			r.registry.AgentFullname(agentToRun),
+			input,
+			output,
+		); err != nil {
 			log.Printf("Failed to log agent: %v", err)
 		}
 		for event, err := range agentToRun.Run(ctx) {
@@ -130,7 +141,7 @@ func (r *GRootRunner) Run(ctx context.Context, userID, sessionID string, msg *ge
 				continue
 			}
 
-			if err := r.eventLog.LogEvent(output, event); err != nil {
+			if err := r.eventLog.LogEvent(userID, output, event); err != nil {
 				log.Printf("Failed to log event: %v", err)
 			}
 			// only commit non-partial event to a session service
@@ -231,12 +242,13 @@ func (r *GRootRunner) appendMessageToSession(ctx agent.Context, storedSession se
 }
 
 type EventLog struct {
+	appName string
 	logFile *os.File
 	session *internal.Session
 	shadows map[string]*internal.Shadow // by output ID
 }
 
-func NewEventLog(filename string, client *internal.Client) (*EventLog, error) {
+func NewEventLog(appName string, filename string, client *internal.Client) (*EventLog, error) {
 	sess, err := client.OpenSession(uuid.NewString())
 	if err != nil {
 		return nil, err
@@ -246,13 +258,14 @@ func NewEventLog(filename string, client *internal.Client) (*EventLog, error) {
 		return nil, err
 	}
 	return &EventLog{
+		appName: appName,
 		logFile: file,
 		session: sess,
 		shadows: make(map[string]*internal.Shadow),
 	}, nil
 }
 
-func (e *EventLog) LogEvent(id string, event *session.Event) error {
+func (e *EventLog) LogEvent(userID string, id string, event *session.Event) error {
 	if event.LLMResponse == nil || event.LLMResponse.Content == nil {
 		return nil
 	}
@@ -261,7 +274,7 @@ func (e *EventLog) LogEvent(id string, event *session.Event) error {
 		return fmt.Errorf("no shadow found for output ID: %s", id)
 	}
 
-	fmt.Fprintf(e.logFile, "%s|stream|%s\n", e.session.ID(), id)
+	fmt.Fprintf(e.logFile, "%s|%s|%s|stream|%s\n", e.appName, userID, e.session.ID(), id)
 	e.logFile.Sync()
 
 	out, err := json.Marshal(event)
@@ -274,13 +287,13 @@ func (e *EventLog) LogEvent(id string, event *session.Event) error {
 	}, event.Partial)
 }
 
-func (e *EventLog) LogActivity(kind string, name, input, output string) error {
+func (e *EventLog) LogActivity(userID string, kind string, name, input, output string) error {
 	shadow, err := e.session.NewADKShadow(name, input, output)
 	if err != nil {
 		return err
 	}
 	e.shadows[output] = shadow
-	_, err = fmt.Fprintf(e.logFile, "%s|%s|%s|%s|%s\n", e.session.ID(), kind, name, input, output)
+	_, err = fmt.Fprintf(e.logFile, "%s|%s|%s|%s|%s|%s|%s\n", e.appName, userID, e.session.ID(), kind, name, input, output)
 	e.logFile.Sync()
 	return err
 }
