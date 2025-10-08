@@ -215,7 +215,7 @@ func TestExecutor_Execute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			agent, err := newEventReplayAgent(tc.events, tc.agentRunFails)
 			if err != nil {
-				t.Fatalf("failed to create an agent: %v", err)
+				t.Fatalf("newEventReplayAgent() error = %v, want nil", err)
 			}
 			sessionService := &testSessionService{Service: sessionservice.Mem(), createErr: tc.createSessionFails}
 			config := &ExecutorConfig{AppName: agent.Name(), Agent: agent, SessionService: sessionService}
@@ -228,14 +228,14 @@ func TestExecutor_Execute(t *testing.T) {
 
 			err = executor.Execute(t.Context(), reqCtx, queue)
 			if err != nil && !tc.wantErr {
-				t.Fatalf("expected Execute() to succeed, got %v", err)
+				t.Fatalf("executor.Execute() error = %v, want nil", err)
 			}
 			if err == nil && tc.wantErr {
-				t.Fatalf("expected Execute() to fail, but succeeded with %d events", len(queue.events))
+				t.Fatalf("executor.Execute() produced %d events, want error", len(queue.events))
 			}
 			if tc.wantEvents != nil {
-				if diff := cmp.Diff(queue.events, tc.wantEvents, ignoreFields...); diff != "" {
-					t.Fatalf("expected different events (+want,-got):\nwant = %v\ngot = %v\ndiff = %s", tc.wantEvents, queue.events, diff)
+				if diff := cmp.Diff(tc.wantEvents, queue.events, ignoreFields...); diff != "" {
+					t.Fatalf("executor.Execute() wrong events (+got,-want):\ngot = %v\nwant = %v\ndiff = %s", queue.events, tc.wantEvents, diff)
 				}
 			}
 		})
@@ -250,20 +250,20 @@ func TestExecutor_Cancel(t *testing.T) {
 	queue := &testQueue{Queue: eventqueue.NewInMemoryQueue(10)}
 	err := executor.Cancel(t.Context(), reqCtx, queue)
 	if err == nil {
-		t.Fatalf("expected Cancel() to fail with no Task on request")
+		t.Fatal("executor.Cancel() error = nil, want to fail when no Task in request")
 	}
 
 	reqCtx.Task = task
 	err = executor.Cancel(t.Context(), reqCtx, queue)
 	if err != nil {
-		t.Fatalf("expected Cancel() to succeed, got %v", err)
+		t.Fatalf("executor.Cancel() error = %v, want nil", err)
 	}
 	if len(queue.events) != 1 {
-		t.Fatalf("expected a single event to be written, got %v", queue.events)
+		t.Fatalf("executor.Cancel() produced %d events, want 1", queue.events)
 	}
 	event := queue.events[0].(*a2a.TaskStatusUpdateEvent)
 	if event.Status.State != a2a.TaskStateCanceled {
-		t.Fatalf("expected a TaskStateCanceled status update, got %v", event)
+		t.Fatalf("executor.Cancel() = %v, want a single TaskStateCanceled update", event)
 	}
 }
 
@@ -271,7 +271,7 @@ func TestExecutor_SessionReuse(t *testing.T) {
 	ctx := t.Context()
 	agent, err := newEventReplayAgent([]*session.Event{}, nil)
 	if err != nil {
-		t.Fatalf("failed to create an agent: %v", err)
+		t.Fatalf("newEventReplayAgent() error = %v, want nil", err)
 	}
 
 	sessionService := sessionservice.Mem()
@@ -284,25 +284,25 @@ func TestExecutor_SessionReuse(t *testing.T) {
 
 	err = executor.Execute(ctx, reqCtx, queue)
 	if err != nil {
-		t.Fatalf("Execute() faield with %v", err)
+		t.Fatalf("executor.Execute() error = %v, want nil", err)
 	}
 	err = executor.Execute(ctx, reqCtx, queue)
 	if err != nil {
-		t.Fatalf("the second Execute() faield with %v", err)
+		t.Fatalf("executor.Execute() error = %v, want nil", err)
 	}
 
 	meta := toInvocationMeta(config, reqCtx)
 	sessions, err := sessionService.List(ctx, &sessionservice.ListRequest{AppName: config.AppName, UserID: meta.userID})
 	if err != nil {
-		t.Fatalf("failed to List() sessions %v", err)
+		t.Fatalf("sessionService.List() error = %v, want nil", err)
 	}
 	if len(sessions.Sessions) != 1 {
-		t.Fatalf("expected session to be reused for the same context, got %v", sessions.Sessions)
+		t.Fatalf("sessionService.List() got %d sessions, want 1", sessions.Sessions)
 	}
 
 	reqCtx.ContextID = a2a.NewContextID()
 	otherContextMeta := toInvocationMeta(config, reqCtx)
 	if meta.sessionID == otherContextMeta.sessionID {
-		t.Fatalf("expected sessionID to be different for different contextIDs")
+		t.Fatal("want sessionID to be different for different contextIDs")
 	}
 }

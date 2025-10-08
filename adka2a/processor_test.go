@@ -255,38 +255,24 @@ func TestEventProcessor_Process(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			processor := newEventProcessor(task, a2asrv.RequestContext{}, invocationMeta{})
 
-			gotEvents := make([]*a2a.TaskArtifactUpdateEvent, 0, len(tc.processed))
+			var gotEvents []*a2a.TaskArtifactUpdateEvent
 			for _, event := range tc.events {
 				got, err := processor.process(t.Context(), event)
 				if err != nil {
-					t.Fatalf("process() failed: %v", err)
+					t.Fatalf("processor.process() error = %v, want nil", err)
 				}
 				if got != nil {
 					gotEvents = append(gotEvents, got)
 				}
 			}
 
-			if len(tc.processed) != len(gotEvents) {
-				t.Fatalf("expected to get %d events, got %d\nevents = %v", len(tc.processed), len(gotEvents), gotEvents)
-			}
-
-			for i, want := range tc.processed {
-				got := gotEvents[i]
-				if diff := cmp.Diff(want, got, ignoreFields...); diff != "" {
-					t.Fatalf("unexpected artifact update (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", got, want, diff)
-				}
+			if diff := cmp.Diff(tc.processed, gotEvents, ignoreFields...); diff != "" {
+				t.Fatalf("processor.process() wrong result (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", gotEvents, tc.events, diff)
 			}
 
 			gotTerminal := processor.makeTerminalEvents()
-			if len(tc.terminal) != len(gotTerminal) {
-				t.Fatalf("expected to get %d terminal events, got %d\nevents = %v", len(tc.terminal), len(gotTerminal), gotTerminal)
-			}
-
-			for i, want := range tc.terminal {
-				got := gotTerminal[i]
-				if diff := cmp.Diff(want, got, ignoreFields...); diff != "" {
-					t.Fatalf("unexpected artifact update (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", got, want, diff)
-				}
+			if diff := cmp.Diff(tc.terminal, gotTerminal, ignoreFields...); diff != "" {
+				t.Fatalf("processor.makeTerminalEvents() wrong result (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", gotTerminal, tc.terminal, diff)
 			}
 		})
 	}
@@ -318,7 +304,7 @@ func TestEventProcessor_ArtifactUpdates(t *testing.T) {
 	for i, event := range events {
 		processed, err := processor.process(t.Context(), event)
 		if err != nil {
-			t.Fatalf("process failed for %d-th event: %v", i, err)
+			t.Fatalf("processor.process() error for %d-th = %v, want nil", i, err)
 		}
 		if processed != nil {
 			got[i] = processed
@@ -326,28 +312,28 @@ func TestEventProcessor_ArtifactUpdates(t *testing.T) {
 	}
 
 	if len(events) != len(got) {
-		t.Fatalf("expected to get %d events, got %d\nevents = %v", len(events), len(got), got)
+		t.Fatalf("processor.process() returned %d events, want %d\nevents = %v", len(got), len(events), got)
 	}
 	if got[0].Append || got[0].LastChunk {
-		t.Fatalf("expected the first event to have {Append=false, LastChunk=false}, got %+v", got[0])
+		t.Fatalf("processor.process()[0] = %+v, want {Append=false, LastChunk=false}", got[0])
 	}
 	wantID := got[0].Artifact.ID
 	for i := range len(got) - 1 {
 		event := got[i+1]
 		if event.LastChunk {
-			t.Fatalf("expected non-terminal artifact updates to have LastChunk=false, got: %+v", event)
+			t.Fatalf("processor.process()[%d] = %+v, want LastChunk=false", i, event)
 		}
 		if event.Artifact.ID != wantID {
-			t.Fatalf("want all artifact IDs to be %v, got %v", wantID, event.Artifact.ID)
+			t.Fatalf("processor.process()[%d] ID = %v, got %v", i, event.Artifact.ID, wantID)
 		}
 	}
 
 	terminal := processor.makeTerminalEvents()
 	finalUpdate, ok := terminal[0].(*a2a.TaskArtifactUpdateEvent)
 	if len(terminal) != 2 || !ok {
-		t.Fatalf("expected final artifact chunk event and a status update, got %v", terminal)
+		t.Fatalf("processor.makeTerminalEvents() = %v, want [finalArtifactChunk, finalStatusUpdate]", terminal)
 	}
 	if !(finalUpdate.Append && finalUpdate.LastChunk) {
-		t.Fatalf("expected the final artifact update to have {Append=true, LastChunk=true}, got %+v", finalUpdate)
+		t.Fatalf("finalArtifactUpdate = %+v, want {Append=true, LastChunk=true}", finalUpdate)
 	}
 }

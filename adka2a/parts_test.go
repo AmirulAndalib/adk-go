@@ -151,18 +151,18 @@ func TestPartsTwoWayConversion(t *testing.T) {
 	for _, tc := range testCases {
 		toA2A, err := toA2AParts([]*genai.Part{tc.genaiPart}, tc.longRunningFunctionIDs)
 		if err != nil {
-			t.Fatalf("toA2AParts() failed: %v", err)
+			t.Fatalf("toA2AParts() error = %v, want nil", err)
 		}
-		if diff := cmp.Diff(toA2A, []a2a.Part{tc.a2aPart}); diff != "" {
-			t.Fatalf("toA2A failed (+want,-got)\nwant = %v\ngot = %v\ndiff = %s", tc.a2aPart, toA2A, diff)
+		if diff := cmp.Diff([]a2a.Part{tc.a2aPart}, toA2A); diff != "" {
+			t.Fatalf("toA2AParts() wrong result (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", toA2A, tc.a2aPart, diff)
 		}
 
 		toGenAI, err := toGenAIParts([]a2a.Part{tc.a2aPart})
 		if err != nil {
-			t.Fatalf("toGenAI() failed: %v", err)
+			t.Fatalf("toGenAIParts() error = %v, want nil", err)
 		}
-		if diff := cmp.Diff(toGenAI, []*genai.Part{tc.genaiPart}); diff != "" {
-			t.Fatalf("toGenAI failed (+want,-got)\nwant = %v\ngot = %v\ndiff = %s", tc.a2aPart, toA2A, diff)
+		if diff := cmp.Diff([]*genai.Part{tc.genaiPart}, toGenAI); diff != "" {
+			t.Fatalf("toGenAIParts() wrong result (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", toA2A, tc.a2aPart, diff)
 		}
 	}
 }
@@ -173,19 +173,19 @@ func TestPartsOneWayConversion(t *testing.T) {
 
 	gotGenAI, err := toGenAIParts([]a2a.Part{part})
 	if err != nil {
-		t.Fatalf("toGenAI() failed: %v", err)
+		t.Fatalf("toGenAI() error = %v, want nil", err)
 	}
-	if diff := cmp.Diff(gotGenAI, []*genai.Part{wantGenAI}); diff != "" {
-		t.Fatalf("toGenAI failed (+want,-got)\nwant = %v\ngot = %v\ndiff = %s", part, gotGenAI, diff)
+	if diff := cmp.Diff([]*genai.Part{wantGenAI}, gotGenAI); diff != "" {
+		t.Fatalf("toGenAI() wrong result (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", gotGenAI, part, diff)
 	}
 
 	wantA2A := a2a.TextPart{Text: `{"arbitrary":"data"}`}
 	gotA2A, err := toA2AParts(gotGenAI, nil)
 	if err != nil {
-		t.Fatalf("toA2AParts() failed: %v", err)
+		t.Fatalf("toA2AParts() error = %v, want nil", err)
 	}
-	if diff := cmp.Diff(gotA2A, []a2a.Part{wantA2A}); diff != "" {
-		t.Fatalf("toA2A failed (+want,-got)\nwant = %v\ngot = %v\ndiff = %s", wantA2A, gotA2A, diff)
+	if diff := cmp.Diff([]a2a.Part{wantA2A}, gotA2A); diff != "" {
+		t.Fatalf("toA2AParts() wrong result (+got,-want)\ngot = %v\nwant = %v\ndiff = %s", gotA2A, wantA2A, diff)
 	}
 
 }
