@@ -90,6 +90,7 @@ func NewEvent(invocationID string) *Event {
 		ID:           uuid.NewString(),
 		InvocationID: invocationID,
 		Timestamp:    time.Now(),
+		Actions:      EventActions{StateDelta: make(map[string]any)},
 	}
 }
 
@@ -112,5 +113,11 @@ type EventActions struct {
 	// The agent is escalating to a higher level agent.
 	Escalate bool
 }
+
+const (
+	KeyPrefixApp  string = "app:"
+	KeyPrefixTemp string = "temp:"
+	KeyPrefixUser string = "user:"
+)
 
 var ErrStateKeyNotExist = errors.New("state key does not exist")
