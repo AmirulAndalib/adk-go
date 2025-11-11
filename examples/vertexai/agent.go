@@ -38,7 +38,7 @@ const (
 func main() {
 	ctx := context.Background()
 
-	rootAgent, err := сreateAgent(ctx)
+	rootAgent, err := createAgent(ctx)
 	if err != nil {
 		log.Fatalf("Failed to create agent: %v", err)
 	}
@@ -58,7 +58,7 @@ func main() {
 	}
 }
 
-func сreateAgent(ctx context.Context) (agent.Agent, error) {
+func createAgent(ctx context.Context) (agent.Agent, error) {
 	model, err := gemini.NewModel(ctx, modelName, &genai.ClientConfig{})
 	if err != nil {
 		return nil, err
